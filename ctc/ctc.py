@@ -481,8 +481,8 @@ class ConceptTransformer(nn.Module):
         attention_dropout=0.1,
         projection_dropout=0.1,
         n_unsup_concepts=0,
-        n_concepts=10,
-        n_spatial_concepts=0,
+        n_concepts=1,
+        n_spatial_concepts=1,
         *args,
         **kwargs,
     ):
@@ -536,6 +536,7 @@ class ConceptTransformer(nn.Module):
             )
 
     def forward(self, x):
+        breakpoint()
         unsup_concept_attn, concept_attn, spatial_concept_attn = None, None, None
 
         out = 0
@@ -634,8 +635,8 @@ class CTC(nn.Module):
         pooling_kernel_size=3,
         pooling_stride=2,
         pooling_padding=1,
-        n_concepts=0,
-        n_spatial_concepts=0,
+        n_concepts=1,
+        n_spatial_concepts=1,
         *args,
         **kwargs,
     ):

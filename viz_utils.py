@@ -77,11 +77,21 @@ def plot_cub_gt(sample,name):
     plt.savefig(name)
     plt.clf()
 
-def plot_cub_expl(results, ind, data_module, name):
+
+def make_smaller(im, min_size=224, fill_color=(0, 0, 0, 0),scale = 1):
+    x, y = im.size
+    size = max(min_size, x, y)
+    new_im = Image.new('RGBA', (size, size), fill_color)
+    new_im.paste(im, (int((size - x//scale) / 2), int((size - y//scale) / 2)))
+    return new_im
+
+def plot_cub_expl(results, ind, data_module, name, trans=1):
     idx = results['idx'][ind].item()
 
     img = data_module.cub_test[idx][0]
     im = Image.fromarray(np.uint8(unnorm_cub(img)*255)).convert("RGBA")
+    # im = make_smaller(im,scale=trans)
+    # breakpoint()
 
     # Prediction
     pred = results['preds'][ind].item()
@@ -93,12 +103,15 @@ def plot_cub_expl(results, ind, data_module, name):
 
     # Get most active patches
     patch_idx = attn.max(axis=1)[0] > 0.6
+    # patch_idx = attn.max(axis=1)[0] > 0.5
 
     patches = np.zeros(n_patch**2) + 0.4
     patches[patch_idx] = 1.0
     patches = patches.reshape(n_patch, n_patch)
-
+    
+    # breakpoint()
     # Get corresponding most active attributes
+    # breakpoint()
     attr_idx = attn[patch_idx,:].max(axis=0)[0] > 0.3
     attr_ind = np.nonzero(attr_idx)
 
@@ -141,9 +154,84 @@ def plot_cub_expl(results, ind, data_module, name):
     for t in nonspatial_attributes:
         print(f'   - {t}')
 
+
 def load_attributes(root='~/data/cub2011/'):
     # Load list of attributes
     attr_list = pd.read_csv(os.path.join(root, 'CUB_200_2011', 'attributes.txt'),
                             sep=' ', names=['attr_id', 'def'])
     attr_list = np.array(attr_list['def'].to_list())
     return attr_list
+
+
+def plot_kidney_expl(results, ind, data_module, name, trans=1):
+    idx = results['idx'][ind].item()
+
+    img = data_module.cub_test[idx][0]
+    im = Image.fromarray(np.uint8(unnorm_cub(img)*255)).convert("RGBA")
+    # im = make_smaller(im,scale=trans)
+    # breakpoint()
+
+    # Prediction
+    pred = results['preds'][ind].item()
+    # prediction = data_module.cub_test.class_names[pred].split('/')[0][4:]
+
+    # breakpoint()
+    # Spatial attention
+    # attn = results['spatial_concept_attn'][ind]
+    attn = results['spatial_expl'][ind]
+
+    n_patch = int(np.sqrt(attn.shape[0]))
+
+    # breakpoint()
+    # Get most active patches
+    patch_idx = attn.max(axis=0)[0] > 0.6
+    # patch_idx = attn.max(axis=1)[0] > 0.5
+
+    patches = np.zeros(n_patch**2) + 0.4
+    patches[patch_idx] = 1.0
+    patches = patches.reshape(n_patch, n_patch)
+    
+    # breakpoint()
+    # Get corresponding most active attributes
+    # breakpoint()
+    # attr_idx = attn[patch_idx,:].max(axis=0)[0] > 0.3
+    # attr_ind = np.nonzero(attr_idx)
+
+    # attr_list = load_attributes()
+    # attributes = attr_list[np.array(data_module.cub_test.spatial_attributes_pos)[attr_ind] - 1]
+
+    # # Nonspatial explanation
+    # expl = results['concept_attn'][ind]
+    # expl_idx = expl > 0.2
+    # nonspatial_attributes = attr_list[np.array(data_module.cub_test.non_spatial_attributes_pos)[expl_idx] - 1]
+
+    # Plot
+    im_p = Image.fromarray(np.uint8(patches * 255)).convert("L")
+    im_p = im_p.resize(im.size, Image.Resampling.LANCZOS)
+
+    im.putalpha(im_p)
+
+    plt.imshow(im)
+    plt.axis('off')
+    # plt.show()
+    plt.savefig(name)
+    plt.clf()
+
+    # correct = results['correct'][ind].item()
+    # correct_wrong = ['*wrong*', '*correct*'][correct]
+    # if not correct:
+    #     gt = data_module.cub_test[idx][3]
+    #     gt = data_module.cub_test.class_names[gt].split('/')[0][4:]
+    #     correct_wrong += f', gt is {gt}'
+
+    # printmd(f'**Prediction**: {prediction} ({correct_wrong})')
+
+    # print(' Spatial explanations:')
+    # if isinstance(attributes, str):
+    #     attributes = [[attributes]]
+    # for t in attributes:
+    #     print(f'   - {t[0]}')
+
+    # print(' Global explanations:')
+    # for t in nonspatial_attributes:
+    #     print(f'   - {t}')

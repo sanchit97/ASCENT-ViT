@@ -76,11 +76,14 @@ class CTCModel(pl.LightningModule):
 
     def training_step(self, batch, batch_idx):
         logits, preds, ce_loss, acc, expl_loss, l1_loss, _, _, _ = self.shared_step(batch)
-        loss = ce_loss
+        # loss = ce_loss
+        loss = 0
         if self.hparams.expl_lambda > 0:
             loss = loss + self.hparams.expl_lambda * expl_loss
         if self.hparams.attention_sparsity > 0:
             loss = loss + self.hparams.attention_sparsity * l1_loss
+
+        print(expl_loss, loss)
 
         self.log_dict(
             {
@@ -157,12 +160,19 @@ class CTCModel(pl.LightningModule):
         ce_loss = F.nll_loss(logits, y)
         # breakpoint()
         # acc = accuracy("multiclass", preds, y)
-        acc = Accuracy(task="multiclass", num_classes=200).cuda()(preds,y)
+        # acc = Accuracy(task="multiclass", num_classes=200).cuda()(preds,y)
+        acc = Accuracy(task="multiclass", num_classes=3).cuda()(preds,y)
 
-        expl_loss = concepts_cost(concept_attn, expl) + spatial_concepts_cost(
+        # breakpoint()
+        # expl_loss = concepts_cost(concept_attn, expl) + spatial_concepts_cost(
+        #     spatial_concept_attn, spatial_expl
+        # )
+        # breakpoint()
+        expl_loss = spatial_concepts_cost(
             spatial_concept_attn, spatial_expl
         )
         l1_loss = concepts_sparsity_cost(concept_attn, spatial_concept_attn)
+        # l1_loss = 0
 
         return (
             logits,

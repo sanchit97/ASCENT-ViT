@@ -20,7 +20,7 @@ def get_parser(parser):
                         help='weight decay (default: 1e-3)')
     parser.add_argument('--attention_sparsity', default=0.5, type=float,
                         help='sparsity penalty on attention')
-    parser.add_argument('--max_epochs', default=50, type=int)
+    parser.add_argument('--max_epochs', default=5, type=int)
     parser.add_argument('--warmup', default=10, type=int, metavar='N',
                         help='number of warmup epochs')
     parser.add_argument('--finetune_unfreeze_epoch', default=0, type=int, metavar='N',
@@ -29,9 +29,9 @@ def get_parser(parser):
                         help='disable cosine lr schedule')
     parser.add_argument('--baseline', action='store_true',
                         help='run baseline without concepts')
-    parser.add_argument('--expl_lambda', default=1.0, type=float,
+    parser.add_argument('--expl_lambda', default=100.0, type=float,
                         help='weight of explanation loss')
-    parser.add_argument('--num_workers', default=0, type=int, help='number of workers')
+    parser.add_argument('--num_workers', default=1, type=int, help='number of workers')
     parser.add_argument('--seed', default=42, type=int, help='random seed')
     parser.add_argument('--psi', default=1, type=float, help='psi')
     parser.add_argument('--run_name', default="psi=0", type=str, help='name of run')

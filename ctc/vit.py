@@ -17,8 +17,12 @@ from torch.autograd.function import once_differentiable
 from torch.cuda.amp import custom_bwd, custom_fwd
 import torch.nn.functional as F
 
-
+# def cub_cvit(backbone_name="timm/vit_base_patch16_224.dino", baseline=False, *args, **kwargs):
+# def cub_cvit(backbone_name="timm/deit_base_patch16_224.fb_in1k", baseline=False, *args, **kwargs):
 def cub_cvit(backbone_name="vit_large_patch16_224", baseline=False, *args, **kwargs):
+# def cub_cvit(backbone_name="vit_base_patch16_224", baseline=False, *args, **kwargs):
+# def cub_cvit(backbone_name="timm/swin_base_patch4_window7_224.ms_in22k_ft_in1k", baseline=False, *args, **kwargs):
+# def cub_cvit(backbone_name="timm/levit_256.fb_dist_in1k", baseline=False, *args, **kwargs):
     """
     Args:
         baseline (bool): If true it returns the baseline model, which in this case it just the vit backbone without concept transformer
@@ -26,10 +30,10 @@ def cub_cvit(backbone_name="vit_large_patch16_224", baseline=False, *args, **kwa
     if not baseline:
         return CVIT(
             model_name=backbone_name,
-            num_classes=200,
+            num_classes=3,
             n_unsup_concepts=0,
-            n_concepts=13,
-            n_spatial_concepts=95,
+            n_concepts=1,
+            n_spatial_concepts=1,
             num_heads=12,
             attention_dropout=0.1,
             projection_dropout=0.1,
@@ -73,10 +77,23 @@ class CVIT(nn.Module):
         super().__init__()
 
         self.feature_extractor = timm.create_model(model_name, pretrained=True, num_classes=num_classes)
-        del self.feature_extractor.head
+        # del self.feature_extractor.head_dist
+        # del self.feature_extractor.head
+        try:
+            del self.feature_extractor.head_dist
+        except:
+            del self.feature_extractor.head
+        
+        if type(self.feature_extractor).__name__ =='SwinTransformer':
+            embed_dim = 1024
+        else:
+            embed_dim = self.feature_extractor.embed_dim
+        
+        # embed_dim = 512
+            
 
         self.classifier = ConceptTransformerVIT(
-            embedding_dim=self.feature_extractor.embed_dim,
+            embedding_dim=embed_dim,
             num_classes=num_classes,
             attention_dropout=attention_dropout,
             projection_dropout=projection_dropout,
@@ -87,7 +104,6 @@ class CVIT(nn.Module):
             **kwargs,
         )
 
-        embed_dim = 1024
         self.psi = psi
         print("Psi:", psi)
         self.spm = SpatialPriorModule(inplanes=64, embed_dim=embed_dim)
@@ -97,13 +113,22 @@ class CVIT(nn.Module):
                         nn.ReLU(inplace=True),
                         nn.Conv2d(in_channels = 512,out_channels = 197, kernel_size = 1)
                         )
+
+        # self.map_swim = nn.Conv2d(in_channels = 49, out_channels = 196, kernel_size = 1)
+
+        # self.map_levit = nn.Sequential(
+        #     nn.Conv2d(in_channels=16, out_channels=196, kernel_size=1),
+        #     # nn.ReLU(),
+        #     # nn.Linear(in_features=1, out_features=512)
+        # )
+
         self.level_embed = nn.Parameter(torch.zeros(3, embed_dim))
         normal_(self.level_embed)
 
         # self.deform_attn = MSDeformAttn(d_model=dim, n_levels=n_levels, n_heads=num_heads,
         #                          n_points=n_points, ratio=deform_ratio)
 
-        self.injector = Injector(dim=1024, n_levels=3, num_heads=8, init_values=0.,
+        self.injector = Injector(dim=embed_dim, n_levels=3, num_heads=8, init_values=0.,
                                  n_points=4, norm_layer=partial(nn.LayerNorm, eps=1e-6), 
                                  deform_ratio=1.0,
                                  with_cp=False)
@@ -131,25 +156,49 @@ class CVIT(nn.Module):
         return c2, c3, c4
 
     def forward(self, x):
+        # breakpoint()
         # Spatiality calculations
         deform_inputs1, deform_inputs2 = deform_inputs(x)
         c1, c2, c3, c4 = self.spm(x)
         c2, c3, c4 = self._add_level_embed(c2, c3, c4)
         spatial_feat = torch.cat([c2, c3, c4], dim=1)
 
-        x = self.feature_extractor.patch_embed(x)
-        cls_token = self.feature_extractor.cls_token.expand(
-            x.shape[0], -1, -1
-        )  # stole cls_tokens impl from Phil Wang, thanks
-        x = torch.cat((cls_token, x), dim=1)
+        
+        # breakpoint()
+        # Comment for Swin Models
+        if type(self.feature_extractor).__name__ =='SwinTransformer':
+            x = self.feature_extractor.patch_embed(x)
+            x = self.feature_extractor.layers(x)
+            x = self.feature_extractor.norm(x)
+        
+        elif type(self.feature_extractor).__name__ =='LevitDistilled':
+            x = self.feature_extractor.stages(self.feature_extractor.stem(x).flatten(2).transpose(1, 2))
+            x = self.map_levit(x.unsqueeze(-1)).squeeze()
+            x =  torch.cat(( x, torch.ones(x.size(0), 1, x.size(2) ).cuda()), dim=1)
+        else:
+            x = self.feature_extractor.patch_embed(x)
+            cls_token = self.feature_extractor.cls_token.expand(
+                x.shape[0], -1, -1
+            )  # stole cls_tokens impl from Phil Wang, thanks
+            x = torch.cat((cls_token, x), dim=1)
 
-        # if self.feature_extractor.dist_token is None:
-        #     x = torch.cat((cls_token, x), dim=1)
-        # else:
-        #     x = torch.cat((cls_token, self.feature_extractor.dist_token.expand(x.shape[0], -1, -1), x), dim=1)
-        x = self.feature_extractor.pos_drop(x + self.feature_extractor.pos_embed)
-        x = self.feature_extractor.blocks(x)
-        x = self.feature_extractor.norm(x)
+            # if self.feature_extractor.dist_token is None:
+            #     x = torch.cat((cls_token, x), dim=1)
+            # else:
+            #     x = torch.cat((cls_token, self.feature_extractor.dist_token.expand(x.shape[0], -1, -1), x), dim=1)
+            x = self.feature_extractor.pos_drop(x + self.feature_extractor.pos_embed)
+            x = self.feature_extractor.blocks(x)
+            x = self.feature_extractor.norm(x)
+        
+
+        
+
+        if type(self.feature_extractor).__name__ =='SwinTransformer':
+            x = self.map_swim(x.flatten(start_dim=1,end_dim=2).unsqueeze(-1)).squeeze()
+            ## Add dummy 1 for CLS
+            x =  torch.cat(( x, torch.ones(x.size(0), 1, x.size(2) ).cuda()), dim=1)
+
+
 
 
 
@@ -157,9 +206,7 @@ class CVIT(nn.Module):
         # x = x + self.psi * self.map_spatial_vit(spatial_feat.unsqueeze(-1)).squeeze(-1)
 
         ### Add spm output - attention
-        spatials = self.injector(query=x, reference_points=deform_inputs1[0],
-                          feat=spatial_feat, spatial_shapes=deform_inputs1[1],
-                          level_start_index=deform_inputs1[2])
+        spatials = self.injector(query=x, reference_points=deform_inputs1[0],feat=spatial_feat, spatial_shapes=deform_inputs1[1],level_start_index=deform_inputs1[2])
         
 
 
@@ -182,13 +229,13 @@ class ConceptTransformerVIT(nn.Module):
     def __init__(
         self,
         embedding_dim=768,
-        num_classes=10,
+        num_classes=3,
         num_heads=2,
         attention_dropout=0.1,
         projection_dropout=0.1,
-        n_unsup_concepts=10,
-        n_concepts=10,
-        n_spatial_concepts=10,
+        n_unsup_concepts=0,
+        n_concepts=1,
+        n_spatial_concepts=1,
         *args,
         **kwargs,
     ):
@@ -239,7 +286,6 @@ class ConceptTransformerVIT(nn.Module):
 
     def forward(self, x_cls, x):
         unsup_concept_attn, concept_attn, spatial_concept_attn = None, None, None
-
         out = 0.0
         if self.n_unsup_concepts > 0:  # unsupervised stream
             out_unsup, unsup_concept_attn = self.concept_tranformer(x_cls, self.unsup_concepts)
